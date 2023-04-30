@@ -1,0 +1,139 @@
+---
+title: "Minimizing Weight Carrying Cost"
+author: "Leo_Song"
+date: "2023-03-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+Objective 1: Minimize Weight Carrying Cost. 
+We have a set of orders with their codes.
+```{r}
+codes <-c('SRY020','SSR001'
+,'SRY020',
+'SSY020',
+'SSR001',
+'SSR001',
+'SRY020',
+'SSR001',
+'SSY020',
+'SRY020')
+```
+
+This is a list of the distance for each cell. The start is at the left top. The counting sequence is top to buttom, left to right. 
+```{r}
+distance<- c(0.60526, 0.62406, 0.60526, 0.62406, 0.6015,
+                            0.6015, 0.66165, 0.71804, 0.81203, 0.98872,
+                            0.29699, 0.31578, 0.29699, 0.31954, 0.33834,
+                            0.42857, 0.50375, 0.65413, 0.81954, 0.99248,
+                            0.03383, 0.03383, 0.07518, 0.14661, 0.2218,
+                            0.34586, 0.50751, 0.65413, 0.78195, 0.99248,
+                            0.01503, 0.01127, 0.06015, 0.13157, 0.21052,
+                            0.33834, 0.50375, 0.64285, 0.81578, 0.97368,
+                            0.00375, 0, 0.00375, 0.13157, 0.21804, 0.3609,
+                            0.49248, 0.65789, 0.79323, 1)
+```
+
+Weight Carry Cost = distance * distance unit cost * Weight of product
+Weight of Product = unit *unit weight
+The weight function below is to return the weight of each product based on their codes. 
+```{r}
+weight<- function(code) {
+  code <- strsplit(code, "")[[1]]
+  if (code[2] =='R'){
+    weight_per_unit <- 5
+  }
+  else{
+    weight_per_unit <- 15
+  }
+  if(code[3] == 'B'){
+    return (as.numeric(code[4])*weight_per_unit)
+  }
+  else if (code[3]=='Y'){
+    return (as.numeric(code[5])*weight_per_unit)
+  }
+  else{
+    return (as.numeric(code[6])*weight_per_unit)
+  }
+} 
+```
+
+
+Total_cost function, which is to times the distance unit cost and distance and weight, to get the total cost. 
+```{r}
+total_cost <- function(i,j ) {
+  total_cost <- (2/0.00001)*distance[j]*weight(codes[i])
+  return(total_cost)
+}
+```
+
+OMPR is used for this optimization model
+The optimization objective function looks like:
+```{r}
+setwd("/Users/leo/Desktop/capstone")
+'![objective.](Users/leo/Desktop/capstone/ob_func.png)'
+```
+The objective funciton is the sum of each products' cost, and we try to minimize it. 
+total_cost[i,j] is the weight carrying cost according to the product index i and cell index j. 
+x[i,j] is a binary variable, and we have constraints to make sure only one product to be placed in one cell, 
+and one cell only contains one product. 
+```{r}
+library(ompr)
+library(magrittr)
+model <- MIPModel() %>%
+  add_variable(x[i, j], i=1:10, j=1:50, type="binary") %>%
+  set_objective(sum_over(total_cost(i, j)*x[i, j], i = 1:10, j = 1:50), sense = "min") %>%
+  add_constraint(sum_over(x[i, j], i=1:10)<=1, j=1:50) %>%
+  add_constraint(sum_over(x[i, j], j=1:50)==1, i=1:10) 
+model
+```
+
+Solve the model
+```{r}
+library(ompr.roi)
+library(ROI.plugin.glpk)
+result <- solve_model(model, with_ROI(solver = "glpk", verbose = TRUE))
+matching <- result %>% 
+  get_solution(x[i,j])
+matching
+
+```
+
+
+Compare the cost with the naive method: By allocating the products to the nearest spot available. 
+```{r}
+df <- data.frame(matrix(0, nrow = 5, ncol = 10, dimnames = list(paste("row", 1:5), 1:10)))
+
+products = matching$i[matching$value == 1]
+rows = matching$j[matching$value == 1]%/%length(df) + 1
+cols = matching$j[matching$value == 1]%%length(df)
+
+# calculating product weights
+myweights = c()
+for (indices in 1:length(codes)) {
+  myweights = c(myweights, weight(codes[indices]))
+}
+
+# updating the matrix
+for (indices in 1:length(rows)) {
+  df[rows[indices], cols[indices]] <- paste(products[indices], myweights[products][indices])
+}
+
+# naive method
+closest= sort(distance)[1:length(products)]
+naive = 0
+for (indices in 1:length(products)) {
+  naive = naive + (2/0.00001)*closest[indices]*weight(codes[indices])
+}
+
+
+## Saving
+(naive - result$objective_value)/ naive * 100
+
+```

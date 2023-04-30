@@ -1,0 +1,168 @@
+---
+title: "max_expiry + min_cost"
+author: "Leo_Song"
+date: "2023-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The second step of challenge 2 is to maximize expiry and minimize cost at the same time. 
+By placing product in different color of cell, expiry can be changed, therefore maximized. 
+First let's write a function to transform the code to its according expiry. 
+Weight function is the same as in the first step. 
+So as the distance and cell color, they are demonstrated as a list. 
+```{r}
+expiry <- function(i,j) {
+  code <- strsplit(codes[i], "")[[1]]
+  if (code[2] =='Y'& cell_ex[j] == 'R'){
+    return(0)
+  }
+  else if (code[2] =='Y'& cell_ex[j] == 'Y'){
+    return (2)
+  }
+   else if (code[2] =='Y'& cell_ex[j] == 'G'){
+    return (3)
+   }
+  else if (code[2] =='R'& cell_ex[j] == 'R'){
+    return (0)
+  }
+  else if (code[2] =='R'& cell_ex[j] == 'Y'){
+    return (1)
+  }
+  else if (code[2] =='R'& cell_ex[j] == 'G'){
+    return (2)
+  }
+  else if (code[2] =='B'& cell_ex[j] == 'R'){
+    return (1)
+  }
+  else if (code[2] =='B'& cell_ex[j] == 'Y'){
+    return (3)
+  }
+  else{
+    return (6)
+  }
+} 
+
+weight<- function(code) {
+  code <- strsplit(code, "")[[1]]
+  if (code[2] =='R'){
+    weight_per_unit <- 5
+  }
+  else{
+    weight_per_unit <- 15
+  }
+  if(code[3] == 'B'){
+    return (as.numeric(code[4])*weight_per_unit)
+  }
+  else if (code[3]=='Y'){
+    return (as.numeric(code[5])*weight_per_unit)
+  }
+  else{
+    return (as.numeric(code[6])*weight_per_unit)
+  }
+} 
+
+total_cost <- function(i,j ) {
+  total_cost <- (2/0.00001)*distance[j]*weight(codes[i])
+  return(total_cost)
+}
+
+codes <-c('SRY020','SSR001'
+,'SRY020',
+'SSY020',
+'SSR001',
+'SSR001',
+'SRY020',
+'SSR001',
+'SSY020',
+'SRY020')
+
+cell_ex <- c("R","R","R","R","R","R","G","G","G","G",
+             "R","R","R","R","R","R","G","G","G","G",
+             "R","R","R","R","R","R","G","G","G","G",
+             "R","R","R","R","R","R","Y","Y","Y","Y",
+             "R","R","R","R","R","R","Y","Y","Y","Y")
+
+distance<- c(0.60526, 0.62406, 0.60526, 0.62406, 0.6015,
+                            0.6015, 0.66165, 0.71804, 0.81203, 0.98872,
+                            0.29699, 0.31578, 0.29699, 0.31954, 0.33834,
+                            0.42857, 0.50375, 0.65413, 0.81954, 0.99248,
+                            0.03383, 0.03383, 0.07518, 0.14661, 0.2218,
+                            0.34586, 0.50751, 0.65413, 0.78195, 0.99248,
+                            0.01503, 0.01127, 0.06015, 0.13157, 0.21052,
+                            0.33834, 0.50375, 0.64285, 0.81578, 0.97368,
+                            0.00375, 0, 0.00375, 0.13157, 0.21804, 0.3609,
+                            0.49248, 0.65789, 0.79323, 1)
+```
+
+Use the expiry function and the weight function to make them as a cost-matrix and expiry matrix, they will have their value according to which product be put in which cells.
+```{r}
+num_i <- 10
+num_j <- 50
+
+# Create a matrix to store the expiry values
+expiry_matrix <- matrix(nrow = num_i, ncol = num_j)
+
+# Fill the matrix with expiry values using a nested for loop
+for (i in 1:num_i) {
+  for (j in 1:num_j) {
+    expiry_matrix[i, j] <- expiry(i, j)
+  }
+}
+
+expiry_matrix <- expiry_matrix/(max(expiry_matrix)-min(expiry_matrix))
+```
+
+Since we are trying to combine the mini and with a max objective function. we need to do something to make them the same way, in here, we trying to make cost to be maximized as well, using normalization. 
+the value of cost is divided by difference between the max value and mini value, then minus 1, then take the absolute value of it. we successfully transform the cost objective function from minimization to maximization. 
+```{r}
+num_i <- 10
+num_j <- 50
+
+# Create a matrix to store the expiry values
+cost_matrix <- matrix(nrow = num_i, ncol = num_j)
+
+# Fill the matrix with expiry values using a nested for loop
+for (i in 1:num_i) {
+  for (j in 1:num_j) {
+    cost_matrix[i, j] <- total_cost(i, j)
+  }
+}
+cost_matrix <- abs(cost_matrix/(max(cost_matrix)-min(cost_matrix))-1)
+cost_list <- as.numeric(unlist(cost_matrix))
+expiry_list <- as.numeric(unlist(expiry_matrix))
+```
+
+```{r}
+ks_result <- ks.test(cost_list, expiry_list)
+hist(cost_list)
+hist(expiry_list)
+ks_result
+```
+
+Then, we solve the model and get the answer. 
+```{r}
+library(ompr)
+library(magrittr)
+library(ompr.roi)
+library(ROI.plugin.glpk)
+model3 <- MIPModel() %>%
+  add_variable(x[i, j], i=1:10, j=1:50
+               , type="binary") %>%
+  set_objective(sum_over(0.8*(expiry_matrix[i,j]*x[i, j])+0.2*(cost_matrix[i,j]*x[i, j]), i = 1:10, j = 1:50), 
+                sense = "max") %>%
+  add_constraint(sum_over(x[i, j], i=1:10)<=1, j=1:50) %>%
+  add_constraint(sum_over(x[i, j], j=1:50)==1, i=1:10) 
+model3
+library(dplyr)
+result <- solve_model(model3, with_ROI(solver = "glpk", verbose = TRUE))
+
+
+kobe <-result %>% 
+  get_solution(x[i,j]) %>% 
+  filter(value!= 0)
+kobe
+```

@@ -1,0 +1,128 @@
+---
+title: "Challenge 3 code"
+author: "Tanish Ramisetty"
+date: "2023-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Clean up and libraries for xgboost predictive model 
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(xgboost)
+library(caret)
+library(OptimalCutpoints)
+library(ggplot2)
+library(pROC)
+library(SHAPforxgboost)
+data <- read_excel('~/Documents/R_data/PTSF-Datasets/output.xlsx')
+data2 <- read_excel('~/Documents/R_data/PTSF-Datasets/database_output_v0.xlsx')
+# cleaning time variables
+data$CreationDate <- as.POSIXct(strptime(data$CreationDate, format="%Y-%m-%d %H:%M:%S.%OS"))
+data$LaunchedDateTime <- as.POSIXct(strptime(data$LaunchedDateTime, format="%Y-%m-%d %H:%M:%S.%OS"))
+data$LaunchFinishedDateTime <- as.POSIXct(strptime(data$LaunchFinishedDateTime, format="%Y-%m-%d %H:%M:%S.%OS"))
+data$CreationDate <- format(data$CreationDate, "%Y-%m-%d %H:%M:%S")
+data$LaunchedDateTime <- format(data$LaunchedDateTime, "%Y-%m-%d %H:%M:%S")
+data$LaunchFinishedDateTime <- format(data$LaunchFinishedDateTime, "%Y-%m-%d %H:%M:%S")
+# time elapsed between creation date and launch date & launch date and finished date 
+data$timeelapsed1 <- difftime(data$LaunchedDateTime, data$CreationDate, units = "secs")
+data$timeelapsed2 <- difftime(data$LaunchFinishedDateTime, data$LaunchedDateTime, units = "secs")
+data2$CreationDate <- as.POSIXct(strptime(data2$CreationDate, format="%Y-%m-%d %H:%M:%S.%OS"))
+data2$LaunchedDateTime <- as.POSIXct(strptime(data2$LaunchedDateTime, format="%Y-%m-%d %H:%M:%S.%OS"))
+data2$LaunchFinishedDateTime <- as.POSIXct(strptime(data2$LaunchFinishedDateTime, format="%Y-%m-%d %H:%M:%S.%OS"))
+data2$CreationDate <- format(data2$CreationDate, "%Y-%m-%d %H:%M:%S")
+data2$LaunchedDateTime <- format(data2$LaunchedDateTime, "%Y-%m-%d %H:%M:%S")
+data2$LaunchFinishedDateTime <- format(data2$LaunchFinishedDateTime, "%Y-%m-%d %H:%M:%S")
+# time elapsed between creation date and launch date & launch date and finished date 
+data2$timeelapsed1 <- difftime(data2$LaunchedDateTime, data2$CreationDate, units = "secs")
+data2$timeelapsed2 <- difftime(data2$LaunchFinishedDateTime, data2$LaunchedDateTime, units = "secs")
+
+data2 <- data2 %>%
+  select(-starts_with("resolved"))
+
+data2 <- data2 %>% 
+  mutate(cycle_time = rowSums(across(starts_with("cycleTime"))),
+         false_count = rowSums(across(c("quality401", "quality402", "quality405", "quality407_L", "quality407_D", "quality406")) == "FALSE", na.rm = TRUE))
+
+```
+
+
+
+XGboost Model 1 
+```{r}
+data2$total_false <- rowSums(data2[, c("quality401", "quality402", "quality405", "quality407_L", "quality407_D", "quality406")] == FALSE, na.rm = TRUE)
+
+
+# Variables
+predictive_df <- data2 %>%
+  select(weight,
+         cycleTime401,
+         cycleTime402,
+         cycleTime405,
+         cycleTime407_L,
+         total_false)
+
+# Clean
+predictive_df <- predictive_df %>%
+  mutate(cycleTime401 = as.integer(cycleTime401),
+         cycleTime402 = as.integer(cycleTime402),
+         cycleTime405 = as.integer(cycleTime405),
+         cycleTime407_L = as.integer(cycleTime407_L))
+predictive_df <- predictive_df %>%
+  mutate_if(is.character, as.factor) %>% 
+  mutate_if(is.factor, as.numeric)  
+predictive_df <- drop_na(predictive_df)
+
+# xgboost matrix
+xgb_matrix <- xgb.DMatrix(data = as.matrix(predictive_df[, -6]), label = predictive_df$total_false)
+
+# Set up the parameters for model 
+xgb_params <- list(
+  objective = "reg:squarederror",
+  booster = "gbtree",
+  eval_metric = "rmse"
+)
+
+# Train the xgboost model
+xgb_model <- xgb.train(params = xgb_params,
+                       data = xgb_matrix,
+                       nrounds = 100,
+                       verbose = 0)
+
+
+importance_matrix <- xgb.importance(colnames(as.matrix(predictive_df[, -6])), model = xgb_model)
+
+# Plot feature importance
+xgb.plot.importance(importance_matrix, xlab = "Importance")
+
+# How well is the model performing?
+predicted_values <- predict(xgb_model, xgb_matrix)
+
+RMSE(predicted_values, predictive_df$total_false)
+
+rsq <- cor(predicted_values, predictive_df$total_false)^2
+print(paste0("R-squared: ", round(rsq, 3)))
+
+mae <- mean(abs(predicted_values - predictive_df$total_false))
+print(paste0("MAE: ", round(mae, 3)))
+```
+
+
+
+
+
+
+
+
+
+
